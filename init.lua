@@ -313,8 +313,8 @@ do
     icons = { mappings = vim.g.have_nerd_font },
     -- Document existing key chains
     spec = {
-      { '<leader>f', group = '[F]ile/find' },
-      { '<leader>s', group = '[S]earch', mode = { 'n', 'v' } },
+      { '<leader>f', group = '[F]ind', mode = { 'n', 'v' } },
+      { '<leader>s', group = '[S]ession' },
       { '<leader>x', group = 'diagnostics/quickfix' },
       { '<leader>b', group = '[B]uffer' },
       { '<leader>c', group = '[C]ode' },
@@ -380,6 +380,14 @@ do
   -- - <leader>e - toggle file explorer (cwd)
   -- - -         - toggle file explorer at the current file
   require('mini.files').setup()
+  -- Show a `g? help` hint on the focused explorer column
+  vim.api.nvim_create_autocmd('User', {
+    pattern = 'MiniFilesWindowUpdate',
+    callback = function(args)
+      local is_cur = args.data.win_id == vim.api.nvim_get_current_win()
+      vim.api.nvim_win_set_config(args.data.win_id, { footer = is_cur and ' g? help ' or '', footer_pos = 'right' })
+    end,
+  })
   vim.keymap.set('n', '<leader>e', function()
     if not MiniFiles.close() then MiniFiles.open() end
   end, { desc = 'File [E]xplorer (cwd)' })
@@ -426,6 +434,48 @@ do
 
   require('mini.tabline').setup()
 
+  -- Per-folder sessions, stored in stdpath('data')/session.
+  --  `nvim` with no args restores the session for cwd; `nvim file` or stdin skips it.
+  local sessions = require 'mini.sessions'
+  sessions.setup()
+  local session_name = (vim.fn.getcwd():gsub('/', '%%'))
+  local session_enabled = vim.fn.argc() == 0
+  vim.api.nvim_create_autocmd('StdinReadPre', { callback = function() session_enabled = false end })
+  vim.api.nvim_create_autocmd('VimEnter', {
+    nested = true,
+    callback = function()
+      if session_enabled and sessions.detected[session_name] then sessions.read(session_name) end
+    end,
+  })
+  vim.api.nvim_create_autocmd('VimLeavePre', {
+    callback = function()
+      -- only the first save, and only if a file is open; after that mini's autowrite saves the active session
+      local has_file = vim.iter(vim.fn.getbufinfo { buflisted = 1 }):any(function(b) return b.name ~= '' end)
+      if session_enabled and has_file and vim.v.this_session == '' then sessions.write(session_name, { verbose = false }) end
+    end,
+  })
+
+  vim.keymap.set('n', '<leader>sr', function() sessions.select 'read' end, { desc = '[S]ession [R]ead' })
+  vim.keymap.set('n', '<leader>sd', function() sessions.select 'delete' end, { desc = '[S]ession [D]elete' })
+  vim.keymap.set('n', '<leader>sn', function()
+    vim.ui.input({ prompt = 'Session name: ' }, function(name)
+      if name and name ~= '' then sessions.write(name) end
+    end)
+  end, { desc = '[S]ession [N]ew' })
+  vim.keymap.set('n', '<leader>sw', function()
+    -- write the active session, or this folder's if none is active yet
+    sessions.write(vim.v.this_session == '' and session_name or nil)
+  end, { desc = '[S]ession [W]rite' })
+  vim.keymap.set('n', '<leader>sx', function()
+    -- delete this folder's session and don't recreate it on quit
+    session_enabled = false
+    if sessions.detected[session_name] then
+      sessions.delete(session_name, { force = true })
+    else
+      vim.notify 'No session for this folder'
+    end
+  end, { desc = '[S]ession clear (this folder)' })
+
   -- ... and there is more!
   --  Check out: https://github.com/nvim-mini/mini.nvim
 end
@@ -451,7 +501,7 @@ do
   local pick = require 'mini.pick'
   local extra = require 'mini.extra'
 
-  pick.setup()
+  pick.setup { window = { prompt_prefix = '(S-Tab help) > ' } }
   extra.setup() -- also registers its pickers into MiniPick.registry
 
   -- Use mini.pick for `vim.ui.select`
@@ -462,12 +512,12 @@ do
   vim.keymap.set('n', '<leader>fr', extra.pickers.oldfiles, { desc = 'Find [R]ecent Files' })
 
   -- search: looking things up
-  vim.keymap.set('n', '<leader>sg', pick.builtin.grep_live, { desc = '[S]earch by [G]rep' })
-  vim.keymap.set('n', '<leader>sh', pick.builtin.help, { desc = '[S]earch [H]elp' })
-  vim.keymap.set('n', '<leader>sk', extra.pickers.keymaps, { desc = '[S]earch [K]eymaps' })
-  vim.keymap.set('n', '<leader>sd', extra.pickers.diagnostic, { desc = '[S]earch [D]iagnostics' })
-  vim.keymap.set('n', '<leader>sR', pick.builtin.resume, { desc = '[S]earch [R]esume' })
-  vim.keymap.set('n', '<leader>sC', extra.pickers.commands, { desc = '[S]earch [C]ommands' })
+  vim.keymap.set('n', '<leader>fg', pick.builtin.grep_live, { desc = '[F]ind by [G]rep' })
+  vim.keymap.set('n', '<leader>fh', pick.builtin.help, { desc = '[F]ind [H]elp' })
+  vim.keymap.set('n', '<leader>fk', extra.pickers.keymaps, { desc = '[F]ind [K]eymaps' })
+  vim.keymap.set('n', '<leader>fd', extra.pickers.diagnostic, { desc = '[F]ind [D]iagnostics' })
+  vim.keymap.set('n', '<leader>fR', pick.builtin.resume, { desc = '[F]ind [R]esume' })
+  vim.keymap.set('n', '<leader>fc', extra.pickers.commands, { desc = '[F]ind [C]ommands' })
   -- Buffers picker with <C-d> to wipe out (delete) marked buffers (mark with
   -- <C-x>/<C-a>), or just the buffer under the cursor if none are marked.
   -- See `:help MiniPick.builtin.buffers()` and `:help MiniPick-actions-mark`.
@@ -481,7 +531,7 @@ do
   end, { desc = '[ ] Find existing buffers' })
 
   -- Grep the word (or visual selection) under the cursor.
-  vim.keymap.set({ 'n', 'x' }, '<leader>sw', function()
+  vim.keymap.set({ 'n', 'x' }, '<leader>fw', function()
     local pattern
     if vim.fn.mode():find '[vV]' then
       vim.cmd 'normal! "vy'
@@ -490,7 +540,7 @@ do
       pattern = vim.fn.expand '<cword>'
     end
     pick.builtin.grep { pattern = vim.fn.escape(pattern, '\\.*$^[]') }
-  end, { desc = '[S]earch current [W]ord' })
+  end, { desc = '[F]ind current [W]ord' })
 
   -- Pick a picker: lists everything registered in `MiniPick.registry`.
   vim.keymap.set('n', '<leader>fp', function()
@@ -507,16 +557,16 @@ do
 
   -- Fuzzily search in the current buffer.
   vim.keymap.set('n', '<leader>/', function() extra.pickers.buf_lines { scope = 'current' } end, { desc = '[/] Fuzzily search in current buffer' })
-  vim.keymap.set('n', '<leader>sb', function() extra.pickers.buf_lines { scope = 'current' } end, { desc = '[S]earch [B]uffer Lines' })
+  vim.keymap.set('n', '<leader>fb', function() extra.pickers.buf_lines { scope = 'current' } end, { desc = '[F]ind [B]uffer Lines' })
   vim.keymap.set('n', '<leader>l', '<cmd>nohlsearch<CR>', { desc = 'No Hi[l]ight' } )
 
   -- Search lines across all open buffers.
-  vim.keymap.set('n', '<leader>sB', function() extra.pickers.buf_lines { scope = 'all' } end, { desc = '[S]earch in Open [B]uffers' })
+  vim.keymap.set('n', '<leader>fB', function() extra.pickers.buf_lines { scope = 'all' } end, { desc = '[F]ind in Open [B]uffers' })
 
   -- Shortcut for searching your Neovim configuration files
   vim.keymap.set(
     'n',
-    '<leader>fc',
+    '<leader>fC',
     function() pick.builtin.files(nil, { source = { cwd = vim.fn.stdpath 'config' } }) end,
     { desc = 'Find Nvim [C]onfig files' }
   )
