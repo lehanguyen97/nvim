@@ -38,7 +38,7 @@ do
   --  Schedule the setting after `UiEnter` because it can increase startup-time.
   --  Remove this option if you want your OS clipboard to remain independent.
   --  See `:help 'clipboard'`
-  vim.schedule(function() vim.o.clipboard = 'unnamedplus' end)
+  -- vim.schedule(function() vim.o.clipboard = 'unnamedplus' end)
 
   -- Enable break indent
   vim.o.breakindent = true
@@ -172,6 +172,14 @@ do
   vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower window' })
   vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper window' })
 
+  -- Closing the gitsigns:// split is enough: gitsigns sets bufhidden=wipe on it,
+  -- and the default diffopt 'closeoff' turns diff off in the source window.
+  vim.keymap.set('n', '<leader>hx', function()
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+      if vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(win)):match '^gitsigns://' then vim.api.nvim_win_close(win, true) end
+    end
+  end, { desc = 'Git diff e[X]it' })
+
   -- Buffer management
   vim.keymap.set('n', '<S-l>', '<cmd>bnext<CR>', { desc = 'Next buffer' })
   vim.keymap.set('n', '<S-h>', '<cmd>bprevious<CR>', { desc = 'Previous buffer' })
@@ -279,6 +287,30 @@ do
       topdelete = { text = '‾' }, ---@diagnostic disable-line: missing-fields
       changedelete = { text = '~' }, ---@diagnostic disable-line: missing-fields
     },
+    on_attach = function(bufnr)
+      local gitsigns = require 'gitsigns'
+
+      local function map(mode, lhs, rhs, desc)
+        vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, desc = desc })
+      end
+
+      map({ 'n', 'x' }, '<leader>hs', ':Gitsigns stage_hunk<CR>', 'Git hunk [S]tage')
+      map({ 'n', 'x' }, '<leader>hr', ':Gitsigns reset_hunk<CR>', 'Git hunk [R]eset')
+      map('n', '<leader>hS', gitsigns.stage_buffer, 'Git buffer [S]tage')
+      map('n', '<leader>hR', gitsigns.reset_buffer, 'Git buffer [R]eset')
+      map('n', '<leader>hp', function()
+        gitsigns.preview_hunk()
+        gitsigns.preview_hunk()
+      end, 'Git hunk [P]review and focus')
+      map('n', '<leader>hi', gitsigns.preview_hunk_inline, 'Git hunk preview [I]nline')
+      map('n', '<leader>hb', function() gitsigns.blame_line { full = true } end, 'Git line [B]lame')
+      map('n', '<leader>hB', gitsigns.blame, 'Git buffer [B]lame')
+      map('n', '<leader>hd', gitsigns.diffthis, 'Git file [D]iff against index')
+      map('n', '<leader>hD', function() gitsigns.diffthis '@' end, 'Git file [D]iff against HEAD')
+      map('n', '<leader>tb', gitsigns.toggle_current_line_blame, '[T]oggle Git [B]lame')
+      map('n', '<leader>tw', gitsigns.toggle_word_diff, '[T]oggle Git [W]ord diff')
+      map({ 'o', 'x' }, 'ih', gitsigns.select_hunk, 'Inside Git hunk')
+    end,
   }
 
   -- Useful plugin to show you pending keybinds.
@@ -295,7 +327,10 @@ do
       { '<leader>b', group = '[B]uffer' },
       { '<leader>c', group = '[C]ode' },
       { '<leader>t', group = '[T]oggle' },
-      { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } }, -- Enable gitsigns recommended keymaps first
+      { '<leader>y', group = '[Y]ank' },
+      { '<leader>g', group = '[G]it' },
+      { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } },
+      { 'gF', desc = 'Go to file and line under cursor' },
       { 'gr', group = 'LSP Actions', mode = { 'n' } },
     },
   }
@@ -446,6 +481,10 @@ do
 
   -- ... and there is more!
   --  Check out: https://github.com/nvim-mini/mini.nvim
+
+  vim.pack.add { gh 'MeanderingProgrammer/render-markdown.nvim' }
+  -- require('render-markdown').setup({}) -- only mandatory if you want to set custom options
+
 end
 
 -- ============================================================
@@ -484,8 +523,11 @@ do
   vim.keymap.set('n', '<leader>fh', pick.builtin.help, { desc = '[F]ind [H]elp' })
   vim.keymap.set('n', '<leader>fk', extra.pickers.keymaps, { desc = '[F]ind [K]eymaps' })
   vim.keymap.set('n', '<leader>fd', extra.pickers.diagnostic, { desc = '[F]ind [D]iagnostics' })
-  vim.keymap.set('n', '<leader>fR', pick.builtin.resume, { desc = '[F]ind [R]esume' })
+  vim.keymap.set('n', '<leader>fa', pick.builtin.resume, { desc = '[F]ind [A]gain' })
   vim.keymap.set('n', '<leader>fc', extra.pickers.commands, { desc = '[F]ind [C]ommands' })
+
+  vim.keymap.set('n', '<leader>gg', function() require('custom.git_changes').open() end, { desc = '[G]it chan[G]es' })
+
   -- Buffers picker with <C-d> to wipe out (delete) marked buffers (mark with
   -- <C-x>/<C-a>), or just the buffer under the cursor if none are marked.
   -- See `:help MiniPick.builtin.buffers()` and `:help MiniPick-actions-mark`.
@@ -908,7 +950,6 @@ do
   -- require 'kickstart.plugins.lint'
   -- require 'kickstart.plugins.autopairs'
   -- require 'kickstart.plugins.neo-tree'
-  -- require 'kickstart.plugins.gitsigns' -- adds gitsigns recommended keymaps
 
   -- NOTE: You can add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --
