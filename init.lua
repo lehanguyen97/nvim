@@ -183,13 +183,13 @@ do
   -- Buffer management
   vim.keymap.set('n', '<S-l>', '<cmd>bnext<CR>', { desc = 'Next buffer' })
   vim.keymap.set('n', '<S-h>', '<cmd>bprevious<CR>', { desc = 'Previous buffer' })
-  vim.keymap.set('n', '<leader>bd', '<cmd>bdelete<CR>', { desc = '[B]uffer [D]elete' })
-  vim.keymap.set('n', '<leader>bo', function()
+  vim.keymap.set('n', '<leader>d', '<cmd>bdelete<CR>', { desc = '[D]elete buffer' })
+  vim.keymap.set('n', '<leader>D', function()
     local cur = vim.api.nvim_get_current_buf()
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
       if buf ~= cur and vim.bo[buf].buflisted then vim.api.nvim_buf_delete(buf, {}) end
     end
-  end, { desc = '[B]uffer close [O]thers' })
+  end, { desc = '[D]elete other buffers' })
 
   -- NOTE: Some terminals have colliding keymaps or are not able to send distinct keycodes
   -- vim.keymap.set("n", "<C-S-h>", "<C-w>H", { desc = "Move window to the left" })
@@ -269,9 +269,27 @@ local function gh(repo) return 'https://github.com/' .. repo end
 
 -- ============================================================
 -- SECTION 4: UI / CORE UX PLUGINS
--- guess-indent, gitsigns, which-key, colorscheme, todo-comments, mini modules
+-- Snacks, guess-indent, gitsigns, which-key, colorscheme, todo-comments, mini modules
 -- ============================================================
 do
+  -- Unified picker, file explorer, and indent guides.
+  vim.pack.add { gh 'folke/snacks.nvim' }
+  local Snacks = require 'snacks'
+
+  Snacks.setup {
+    explorer = {},
+    indent = { animate = { enabled = false } },
+    picker = {
+      icons = { files = { enabled = vim.g.have_nerd_font } },
+      sources = {
+        explorer = { follow_file = false, hidden = true },
+      },
+    },
+  }
+
+  vim.keymap.set('n', '<leader>e', function() Snacks.explorer { cwd = vim.fn.getcwd() } end, { desc = 'File [E]xplorer (cwd)' })
+  vim.keymap.set('n', '<leader>E', Snacks.explorer.reveal, { desc = 'File [E]xplorer (current file)', silent = true })
+
   -- Detect indentation automatically
   vim.pack.add { gh 'NMAC427/guess-indent.nvim' }
   require('guess-indent').setup {}
@@ -313,6 +331,51 @@ do
     end,
   }
 
+  -- Repository-wide Git diff and review UI.
+  vim.pack.add { gh 'dlyongemallo/diffview-plus.nvim' }
+  local diffview_actions = require 'diffview.actions'
+  local git_review_hydra = { keys = '<leader>G', loop = true }
+  local function diffview_hunk(direction)
+    return function()
+      if vim.wo.diff then
+        vim.cmd.normal { direction == 'next' and ']c' or '[c', bang = true }
+      elseif direction == 'next' then
+        diffview_actions.next_inline_hunk()
+      else
+        diffview_actions.prev_inline_hunk()
+      end
+    end
+  end
+  require('diffview').setup {
+    persist_selections = { enabled = true },
+    view = {
+      foldlevel = 99,
+    },
+    keymaps = {
+      view = {
+        { 'n', 'q', '<cmd>DiffviewClose<CR>', { desc = 'Close Diffview' } },
+        {
+          'n',
+          '<leader>g',
+          function()
+            git_review_hydra.loop = true
+            require('which-key').show(git_review_hydra)
+          end,
+          { desc = 'Git review navigation' },
+        },
+        { 'n', '<leader>Gj', 'j', { desc = 'Down' } },
+        { 'n', '<leader>Gk', 'k', { desc = 'Up' } },
+        { 'n', '<leader>Gn', diffview_hunk 'next', { desc = 'Next hunk' } },
+        { 'n', '<leader>Gp', diffview_hunk 'prev', { desc = 'Previous hunk' } },
+        { 'n', '<leader>GN', diffview_actions.select_next_entry, { desc = 'Next changed file' } },
+        { 'n', '<leader>GP', diffview_actions.select_prev_entry, { desc = 'Previous changed file' } },
+      },
+      file_panel = {
+        { 'n', 'q', '<cmd>DiffviewClose<CR>', { desc = 'Close Diffview' } },
+      },
+    },
+  }
+
   -- Useful plugin to show you pending keybinds.
   vim.pack.add { gh 'folke/which-key.nvim' }
   require('which-key').setup {
@@ -324,11 +387,19 @@ do
       { '<leader>f', group = '[F]ind', mode = { 'n', 'v' } },
       { '<leader>s', group = '[S]ession' },
       { '<leader>x', group = 'diagnostics/quickfix' },
-      { '<leader>b', group = '[B]uffer' },
       { '<leader>c', group = '[C]ode' },
       { '<leader>t', group = '[T]oggle' },
       { '<leader>y', group = '[Y]ank' },
       { '<leader>g', group = '[G]it' },
+      {
+        '<leader>G',
+        group = 'Git review navigation',
+        expand = function()
+          return {
+            { 'q', function() git_review_hydra.loop = false end, desc = 'Quit' },
+          }
+        end,
+      },
       { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } },
       { 'gF', desc = 'Go to file and line under cursor' },
       { 'gr', group = 'LSP Actions', mode = { 'n' } },
@@ -336,7 +407,7 @@ do
   }
 
   -- [[ Colorscheme ]]
-  -- `:Pick colorschemes` lists installed themes. Catppuccin also has
+  -- `:lua Snacks.picker.colorschemes()` lists installed themes. Catppuccin also has
   -- 'catppuccin-latte', 'catppuccin-frappe' and 'catppuccin-macchiato'.
   vim.pack.add { { src = "https://github.com/catppuccin/nvim", name = "catppuccin" } }
   vim.cmd.colorscheme 'catppuccin-mocha'
@@ -356,61 +427,21 @@ do
     MiniIcons.mock_nvim_web_devicons()
   end
 
-  -- Better Around/Inside textobjects
-  --
-  -- Examples:
-  --  - va)  - [V]isually select [A]round [)]paren
-  --  - yiiq - [Y]ank [I]nside [I]+1 [Q]uote
-  --  - ci'  - [C]hange [I]nside [']quote
-  require('mini.ai').setup {
-    -- NOTE: Avoid conflicts with the built-in incremental selection mappings on Neovim>=0.12 (see `:help treesitter-incremental-selection`)
-    mappings = {
-      around_next = 'aa',
-      inside_next = 'ii',
-    },
-    n_lines = 500,
-  }
-
-  -- Add/delete/replace surroundings (brackets, quotes, etc.)
-  --
-  -- - saiw) - [S]urround [A]dd [I]nner [W]ord [)]Paren
-  -- - sd'   - [S]urround [D]elete [']quotes
-  -- - sr)'  - [S]urround [R]eplace [)] [']
-  require('mini.surround').setup()
-
-  -- File explorer
-  --
-  -- - <leader>e - toggle file explorer (cwd)
-  -- - -         - toggle file explorer at the current file
-  require('mini.files').setup()
-  -- Show a `g? help` hint on the focused explorer column
-  vim.api.nvim_create_autocmd('User', {
-    pattern = 'MiniFilesWindowUpdate',
-    callback = function(args)
-      local is_cur = args.data.win_id == vim.api.nvim_get_current_win()
-      vim.api.nvim_win_set_config(args.data.win_id, { footer = is_cur and ' g? help ' or '', footer_pos = 'right' })
-    end,
-  })
-  vim.keymap.set('n', '<leader>e', function()
-    if not MiniFiles.close() then MiniFiles.open() end
-  end, { desc = 'File [E]xplorer (cwd)' })
-  vim.keymap.set('n', '-', function()
-    if not MiniFiles.close() then MiniFiles.open(vim.api.nvim_buf_get_name(0), true) end
-  end, { desc = 'File explorer (current file)' })
-
-  -- Yank a file's path to the clipboard: the entry under the cursor in
-  -- mini.files (without opening it), or the current buffer's file otherwise.
+  -- Yank the current file's path to the clipboard.
+  -- Snacks Explorer provides the same mappings for its selected entry.
   --  <leader>yn - filename only
-  --  <leader>yr - path relative to nvim cwd
-  --  <leader>ya - absolute path
-  local function yank_path(modifier)
+  --  <leader>yp/<leader>yP - relative/absolute path
+  --  <leader>yl/<leader>yL - relative/absolute path with line or visual range
+  local function yank_path(modifier, include_lines)
     return function()
-      local path
-      if vim.bo.filetype == 'minifiles' then
-        local entry = MiniFiles.get_fs_entry()
-        path = entry and vim.fn.fnamemodify(entry.path, modifier)
-      else
-        path = vim.fn.expand('%' .. modifier)
+      local path = vim.fn.expand('%' .. modifier)
+      if include_lines then
+        local first, last = vim.fn.line '.', vim.fn.line '.'
+        if vim.fn.mode():find '[vV\22]' then
+          first, last = vim.fn.line 'v', vim.fn.line '.'
+          if first > last then first, last = last, first end
+        end
+        path = path .. ':' .. first .. (first == last and '' or '-' .. last)
       end
       if not path or path == '' then return end
       vim.fn.setreg('+', path)
@@ -419,8 +450,10 @@ do
   end
 
   vim.keymap.set('n', '<leader>yn', yank_path ':t', { desc = '[Y]ank file[N]ame' })
-  vim.keymap.set('n', '<leader>yr', yank_path ':.', { desc = '[Y]ank [R]elative path' })
-  vim.keymap.set('n', '<leader>ya', yank_path ':p', { desc = '[Y]ank [A]bsolute path' })
+  vim.keymap.set('n', '<leader>yp', yank_path ':.', { desc = '[Y]ank relative [P]ath' })
+  vim.keymap.set('n', '<leader>yP', yank_path ':p', { desc = '[Y]ank absolute [P]ath' })
+  vim.keymap.set({ 'n', 'x' }, '<leader>yl', yank_path(':.', true), { desc = '[Y]ank relative [L]ocation' })
+  vim.keymap.set({ 'n', 'x' }, '<leader>yL', yank_path(':p', true), { desc = '[Y]ank absolute [L]ocation' })
 
   -- Simple and easy statusline.
   --  You could remove this setup call if you don't like it,
@@ -489,131 +522,61 @@ end
 
 -- ============================================================
 -- SECTION 5: SEARCH & NAVIGATION
--- mini.pick setup, keymaps, LSP picker mappings
+-- Snacks picker keymaps and LSP picker mappings
 -- ============================================================
 do
-  -- [[ Fuzzy Finder (files, lsp, etc) ]]
-  --
-  -- mini.pick is the picker; mini.extra supplies the extra pickers
-  -- (diagnostics, keymaps, oldfiles, lsp, buffer lines, ...).
-  -- Both ship inside mini.nvim, already added in Section 4.
-  --
-  -- Try it with `:Pick files` or `:Pick help`. In the picker:
-  --  - <Tab>      toggle preview
-  --  - <C-Space>  refine the current matches
-  --  - <C-s>/<C-v>/<C-t>  open in split / vsplit / tab
-  --  - <C-x>      mark item, <C-a> mark all, <M-CR> send marked to quickfix
-  --
-  -- See `:help mini.pick`, `:help mini.extra` and `:help MiniPick-actions`
-  local pick = require 'mini.pick'
-  local extra = require 'mini.extra'
-
-  pick.setup { window = { prompt_prefix = '(S-Tab help) > ' } }
-  extra.setup() -- also registers its pickers into MiniPick.registry
-
-  -- Use mini.pick for `vim.ui.select`
-  vim.ui.select = pick.ui_select
+  local Snacks = require 'snacks'
 
   -- file/find: opening things
-  vim.keymap.set('n', '<leader>ff', pick.builtin.files, { desc = 'Find [F]iles' })
-  vim.keymap.set('n', '<leader>fr', extra.pickers.oldfiles, { desc = 'Find [R]ecent Files' })
+  vim.keymap.set('n', '<leader>ff', Snacks.picker.files, { desc = 'Find [F]iles' })
+  vim.keymap.set('n', '<leader>fr', Snacks.picker.recent, { desc = 'Find [R]ecent Files' })
 
   -- search: looking things up
-  vim.keymap.set('n', '<leader>fg', pick.builtin.grep_live, { desc = '[F]ind by [G]rep' })
-  vim.keymap.set('n', '<leader>fh', pick.builtin.help, { desc = '[F]ind [H]elp' })
-  vim.keymap.set('n', '<leader>fk', extra.pickers.keymaps, { desc = '[F]ind [K]eymaps' })
-  vim.keymap.set('n', '<leader>fd', extra.pickers.diagnostic, { desc = '[F]ind [D]iagnostics' })
-  vim.keymap.set('n', '<leader>fa', pick.builtin.resume, { desc = '[F]ind [A]gain' })
-  vim.keymap.set('n', '<leader>fc', extra.pickers.commands, { desc = '[F]ind [C]ommands' })
+  vim.keymap.set('n', '<leader>fg', Snacks.picker.grep, { desc = '[F]ind by [G]rep' })
+  vim.keymap.set('n', '<leader>fh', Snacks.picker.help, { desc = '[F]ind [H]elp' })
+  vim.keymap.set('n', '<leader>fk', Snacks.picker.keymaps, { desc = '[F]ind [K]eymaps' })
+  vim.keymap.set('n', '<leader>fd', Snacks.picker.diagnostics, { desc = '[F]ind [D]iagnostics' })
+  vim.keymap.set('n', '<leader>fa', Snacks.picker.resume, { desc = '[F]ind [A]gain' })
+  vim.keymap.set('n', '<leader>fc', Snacks.picker.commands, { desc = '[F]ind [C]ommands' })
 
-  vim.keymap.set('n', '<leader>gg', function() require('custom.git_changes').open() end, { desc = '[G]it chan[G]es' })
+  vim.keymap.set('n', '<leader>gg', '<cmd>DiffviewOpen<CR>', { desc = '[G]it chan[G]es' })
 
-  -- Buffers picker with <C-d> to wipe out (delete) marked buffers (mark with
-  -- <C-x>/<C-a>), or just the buffer under the cursor if none are marked.
-  -- See `:help MiniPick.builtin.buffers()` and `:help MiniPick-actions-mark`.
-  vim.keymap.set('n', '<leader><leader>', function()
-    local wipeout = function()
-      local matches = MiniPick.get_picker_matches() or {}
-      local items = (matches.marked and #matches.marked > 0) and matches.marked or { matches.current }
-      for _, item in ipairs(items) do vim.api.nvim_buf_delete(item.bufnr, {}) end
-    end
-    pick.builtin.buffers({}, { mappings = { wipeout = { char = '<C-d>', func = wipeout } } })
-  end, { desc = '[ ] Find existing buffers' })
+  vim.keymap.set('n', '<leader><leader>', Snacks.picker.buffers, { desc = '[ ] Find existing buffers' })
 
   -- Grep the word (or visual selection) under the cursor.
-  vim.keymap.set({ 'n', 'x' }, '<leader>fw', function()
-    local pattern
-    if vim.fn.mode():find '[vV]' then
-      vim.cmd 'normal! "vy'
-      pattern = vim.fn.getreg 'v'
-    else
-      pattern = vim.fn.expand '<cword>'
-    end
-    pick.builtin.grep { pattern = vim.fn.escape(pattern, '\\.*$^[]') }
-  end, { desc = '[F]ind current [W]ord' })
+  vim.keymap.set({ 'n', 'x' }, '<leader>fw', Snacks.picker.grep_word, { desc = '[F]ind current [W]ord' })
 
-  -- Pick a picker: lists everything registered in `MiniPick.registry`.
-  vim.keymap.set('n', '<leader>fp', function()
-    local names = vim.tbl_keys(MiniPick.registry)
-    table.sort(names)
-    MiniPick.start {
-      source = {
-        name = 'Pickers',
-        items = names,
-        choose = function(item) vim.schedule(function() MiniPick.registry[item]() end) end,
-      },
-    }
-  end, { desc = 'Find [P]icker' })
+  vim.keymap.set('n', '<leader>fp', Snacks.picker.pickers, { desc = 'Find [P]icker' })
 
   -- Fuzzily search in the current buffer.
-  vim.keymap.set('n', '<leader>/', function() extra.pickers.buf_lines { scope = 'current' } end, { desc = '[/] Fuzzily search in current buffer' })
-  vim.keymap.set('n', '<leader>fb', function() extra.pickers.buf_lines { scope = 'current' } end, { desc = '[F]ind [B]uffer Lines' })
+  vim.keymap.set('n', '<leader>/', Snacks.picker.lines, { desc = '[/] Fuzzily search in current buffer' })
+  vim.keymap.set('n', '<leader>fb', Snacks.picker.lines, { desc = '[F]ind [B]uffer Lines' })
   vim.keymap.set('n', '<leader>l', '<cmd>nohlsearch<CR>', { desc = 'No Hi[l]ight' } )
 
   -- Search lines across all open buffers.
-  vim.keymap.set('n', '<leader>fB', function() extra.pickers.buf_lines { scope = 'all' } end, { desc = '[F]ind in Open [B]uffers' })
+  vim.keymap.set('n', '<leader>fB', Snacks.picker.grep_buffers, { desc = '[F]ind in Open [B]uffers' })
 
   -- Shortcut for searching your Neovim configuration files
   vim.keymap.set(
     'n',
     '<leader>fC',
-    function() pick.builtin.files(nil, { source = { cwd = vim.fn.stdpath 'config' } }) end,
+    function() Snacks.picker.files { cwd = vim.fn.stdpath 'config' } end,
     { desc = 'Find Nvim [C]onfig files' }
   )
 
-  -- LSP jump pickers start hidden. Once items are in: choose a lone result,
-  -- otherwise show the picker. See mini.nvim #978 and `:h nvim_open_win()` (hide).
-  local hidden = { window = { config = { hide = true } } }
-  vim.api.nvim_create_autocmd('User', {
-    pattern = 'MiniPickStart',
-    group = vim.api.nvim_create_augroup('minipick-lsp-jump', { clear = true }),
-    callback = function()
-      local opts, items = MiniPick.get_picker_opts() or {}, MiniPick.get_picker_items() or {}
-      if not vim.tbl_get(opts, 'window', 'config', 'hide') then return end
-      if #items > 1 then return MiniPick.set_picker_opts { window = { config = { hide = false } } } end
-      local choose = opts.source.choose or MiniPick.default_choose
-      MiniPick.stop()
-      choose(items[1])
-    end,
-  })
-  local function lsp(scope)
-    return function() extra.pickers.lsp({ scope = scope }, hidden) end
-  end
-
   -- LSP pickers, attached per-buffer when a server attaches.
-  -- If you later switch picker plugins, this is where to update these mappings.
   vim.api.nvim_create_autocmd('LspAttach', {
-    group = vim.api.nvim_create_augroup('minipick-lsp-attach', { clear = true }),
+    group = vim.api.nvim_create_augroup('snacks-picker-lsp-attach', { clear = true }),
     callback = function(event)
       local function map(lhs, rhs, desc) vim.keymap.set('n', lhs, rhs, { buffer = event.buf, desc = 'LSP: ' .. desc }) end
 
-      map('grr', lsp 'references', 'References')
-      map('gri', lsp 'implementation', 'Implementation')
-      map('grd', lsp 'definition', 'Definition')
-      map('grt', lsp 'type_definition', 'Type definition')
+      map('grr', Snacks.picker.lsp_references, 'References')
+      map('gri', Snacks.picker.lsp_implementations, 'Implementation')
+      map('grd', Snacks.picker.lsp_definitions, 'Definition')
+      map('grt', Snacks.picker.lsp_type_definitions, 'Type definition')
       map('grD', vim.lsp.buf.declaration, 'Declaration')
-      map('gO', function() extra.pickers.lsp { scope = 'document_symbol' } end, 'Document symbols')
-      map('grw', function() extra.pickers.lsp { scope = 'workspace_symbol' } end, 'Workspace symbols')
+      map('gO', Snacks.picker.lsp_symbols, 'Document symbols')
+      map('grw', Snacks.picker.lsp_workspace_symbols, 'Workspace symbols')
       -- gra (code action) and grn (rename) stay as the 0.11 defaults
     end,
   })
@@ -946,15 +909,13 @@ do
   --  Uncomment any of the lines below to enable them (you will need to restart nvim).
   --
   -- require 'kickstart.plugins.debug'
-  -- require 'kickstart.plugins.indent_line'
   -- require 'kickstart.plugins.lint'
   -- require 'kickstart.plugins.autopairs'
-  -- require 'kickstart.plugins.neo-tree'
 
   -- NOTE: You can add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --
   --  Uncomment the following line and add your plugins to `lua/custom/plugins/*.lua` to get going.
-  -- require 'custom.plugins'
+  require 'custom.plugins'
 end
 
 -- The line beneath this is called `modeline`. See `:help modeline`
