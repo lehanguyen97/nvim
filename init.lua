@@ -11,7 +11,7 @@ do
   vim.g.mapleader = ' '
   vim.g.maplocalleader = ' '
 
-  vim.g.have_nerd_font = false
+  vim.g.have_nerd_font = true
 
   -- [[ Setting options ]]
   vim.o.number = true
@@ -170,7 +170,7 @@ do
     explorer = {},
     indent = { animate = { enabled = false } },
     picker = {
-      icons = { files = { enabled = vim.g.have_nerd_font } },
+      icons = { files = vim.g.have_nerd_font and {} or { dir = '▸ ', dir_open = '▾ ', file = '  ' } },
       sources = {
         explorer = { follow_file = false, hidden = true },
       },
