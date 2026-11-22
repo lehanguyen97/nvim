@@ -86,8 +86,6 @@ do
   vim.keymap.set('n', ']q', vim.cmd.cnext, { desc = 'Next Quickfix' })
   vim.keymap.set('n', '[q', vim.cmd.cprev, { desc = 'Previous Quickfix' })
 
-  vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
-
   vim.keymap.set('n', '<C-h>', '<C-w><C-h>', { desc = 'Move focus to the left window' })
   vim.keymap.set('n', '<C-l>', '<C-w><C-l>', { desc = 'Move focus to the right window' })
   vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower window' })
@@ -190,6 +188,19 @@ do
     local explorer = Snacks.explorer.reveal()
     if explorer then explorer:focus() end
   end, { desc = 'File [E]xplorer (current file)', silent = true })
+
+  local function toggle_terminal()
+    Snacks.terminal.toggle(nil, {
+      win = {
+        position = 'float',
+        border = 'rounded',
+        footer = ' <C-/> toggle │ <Esc><Esc> normal │ q hide ',
+      },
+    })
+  end
+  vim.keymap.set({ 'n', 't' }, '<C-/>', toggle_terminal, { desc = 'Toggle floating terminal' })
+  vim.keymap.set({ 'n', 't' }, '<C-_>', toggle_terminal, { desc = 'Toggle floating terminal' })
+  vim.keymap.set('n', '<leader>tt', toggle_terminal, { desc = '[T]oggle [T]erminal (<C-/>)' })
 
   vim.pack.add { gh 'NMAC427/guess-indent.nvim' }
   require('guess-indent').setup {}
