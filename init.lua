@@ -82,6 +82,7 @@ do
 
   vim.keymap.set('n', '<leader>xl', toggle_diagnostic_list 'loc', { desc = 'Location List (Diagnostics)' })
   vim.keymap.set('n', '<leader>xq', toggle_diagnostic_list 'qf', { desc = 'Quickfix List (Diagnostics)' })
+  vim.keymap.set('n', '<leader>xr', function() vim.diagnostic.reset() end, { desc = '[R]eset Diagnostics' })
   vim.keymap.set('n', ']q', vim.cmd.cnext, { desc = 'Next Quickfix' })
   vim.keymap.set('n', '[q', vim.cmd.cprev, { desc = 'Previous Quickfix' })
 
@@ -177,8 +178,18 @@ do
     },
   }
 
-  vim.keymap.set('n', '<leader>e', function() Snacks.explorer { cwd = vim.fn.getcwd() } end, { desc = 'File [E]xplorer (cwd)' })
-  vim.keymap.set('n', '<leader>E', Snacks.explorer.reveal, { desc = 'File [E]xplorer (current file)', silent = true })
+  vim.keymap.set('n', '<leader>e', function()
+    local explorer = Snacks.picker.get({ source = 'explorer' })[1]
+    if explorer then
+      explorer:close()
+    else
+      Snacks.picker.resume { source = 'explorer' }
+    end
+  end, { desc = 'File [E]xplorer (cwd)' })
+  vim.keymap.set('n', '<leader>E', function()
+    local explorer = Snacks.explorer.reveal()
+    if explorer then explorer:focus() end
+  end, { desc = 'File [E]xplorer (current file)', silent = true })
 
   vim.pack.add { gh 'NMAC427/guess-indent.nvim' }
   require('guess-indent').setup {}
@@ -216,6 +227,16 @@ do
       map('n', '<leader>tw', gitsigns.toggle_word_diff, '[T]oggle Git [W]ord diff')
       map({ 'o', 'x' }, 'ih', gitsigns.select_hunk, 'Inside Git hunk')
     end,
+  }
+
+  vim.pack.add { gh 'petertriho/nvim-scrollbar' }
+  require('scrollbar').setup {
+    providers = {
+      gitsigns = true,
+    },
+    scrollbar = {
+      preset = 'intellij',
+    },
   }
 
   vim.pack.add { gh 'dlyongemallo/diffview-plus.nvim' }
@@ -336,9 +357,34 @@ do
   require('mini.tabline').setup()
 
   local sessions = require 'mini.sessions'
-  sessions.setup()
+  vim.opt.sessionoptions:append 'globals'
+  local function close_explorers()
+    local explorers = Snacks.picker.get { source = 'explorer', tab = false }
+    for _, p in ipairs(explorers) do
+      p:close()
+      p.layout:close()
+    end
+    return #explorers > 0
+  end
+
+  sessions.setup {
+    hooks = {
+      pre = {
+        write = function() vim.g.ExplorerOpen = close_explorers() and 1 or 0 end,
+        read = close_explorers,
+      },
+      post = {
+        read = function()
+          if vim.g.ExplorerOpen == 1 then Snacks.explorer { enter = false } end
+        end,
+      },
+    },
+  }
+  local arg0 = vim.fn.argc() == 1 and vim.fn.argv(0) or nil
+  local arg_dir = type(arg0) == 'string' and vim.fn.isdirectory(arg0) == 1 and arg0 or nil
+  if arg_dir then vim.cmd.cd(arg_dir) end
   local session_name = (vim.fn.getcwd():gsub('/', '%%'))
-  local session_enabled = vim.fn.argc() == 0
+  local session_enabled = vim.fn.argc() == 0 or arg_dir ~= nil
   vim.api.nvim_create_autocmd('StdinReadPre', { callback = function() session_enabled = false end })
   vim.api.nvim_create_autocmd('VimEnter', {
     nested = true,
@@ -496,7 +542,17 @@ do
     gopls = {},
 
     -- --query-driver lets clangd ask emscripten's em++/emcc for its target + sysroot.
-    clangd = { cmd = { 'clangd', '--query-driver=**/em++,**/emcc' } },
+    clangd = {
+      cmd = { 'clangd', '--query-driver=**/em++,**/emcc' },
+      on_init = function(client)
+        -- Drop '<' trigger so clangd doesn't return an empty isIncomplete=false list inside template <>
+        -- that blink.cmp caches while typing.
+        local cp = client.server_capabilities.completionProvider
+        if cp and cp.triggerCharacters then
+          cp.triggerCharacters = vim.tbl_filter(function(c) return c ~= '<' end, cp.triggerCharacters)
+        end
+      end,
+    },
 
     lua_ls = {
       on_init = function(client)
