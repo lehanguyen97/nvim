@@ -115,6 +115,15 @@ do
     group = vim.api.nvim_create_augroup('kickstart-highlight-yank', { clear = true }),
     callback = function() vim.hl.on_yank() end,
   })
+
+  -- VS Code-like focus behavior: save on focus loss; on-disk changes reload
+  -- via 'autoread' (native on BufEnter and FocusGained).
+  vim.o.autoread = true
+  vim.api.nvim_create_autocmd('FocusLost', {
+    group = vim.api.nvim_create_augroup('kickstart-autosave', { clear = true }),
+    desc = 'Save modified buffers when Neovim loses focus',
+    callback = function() vim.cmd 'silent! wall' end,
+  })
 end
 
 -- ============================================================
@@ -165,13 +174,65 @@ do
   vim.pack.add { gh 'folke/snacks.nvim' }
   local Snacks = require 'snacks'
 
+  -- include: always searchable (explicit roots bypass .gitignore).
+  -- exclude: extra hides beyond .gitignore. :SearchFilters edits both.
+  local filters = { include = {}, exclude = {} }
+
+  local files_mod = require 'snacks.picker.source.files'
+  local grep_mod = require 'snacks.picker.source.grep'
+  local orig_files = files_mod.files
+
+  -- Merged per open: setup deep-copies config, so static keys would go stale.
+  local function with_filters(opts, ctx)
+    if not opts.dirs or #opts.dirs == 0 then
+      local cwd = ctx:cwd() or opts.cwd
+      if cwd then
+        local dirs = { cwd }
+        for _, d in ipairs(filters.include) do
+          local st = vim.uv.fs_stat(cwd .. '/' .. d)
+          if st and st.type == 'directory' then dirs[#dirs + 1] = cwd .. '/' .. d end
+        end
+        if #dirs > 1 then opts = vim.tbl_extend('force', opts, { dirs = dirs }) end
+      end
+    end
+    if #filters.exclude > 0 then
+      local seen, add = {}, {}
+      for _, e in ipairs(opts.exclude or {}) do seen[e] = true end
+      for _, e in ipairs(filters.exclude) do
+        if not seen[e] then add[#add + 1] = e end
+      end
+      if #add > 0 then opts = vim.tbl_extend('force', opts, { exclude = vim.list_extend(vim.deepcopy(opts.exclude or {}), add) }) end
+    end
+    return opts
+  end
+
+  function files_mod.files(opts, ctx) return orig_files(with_filters(opts, ctx), ctx) end
+  local function smart_grep(opts, ctx) return grep_mod.grep(with_filters(opts, ctx), ctx) end
+
   Snacks.setup {
     explorer = {},
     indent = { animate = { enabled = false } },
     picker = {
       icons = { files = vim.g.have_nerd_font and {} or { dir = '▸ ', dir_open = '▾ ', file = '  ' } },
       sources = {
-        explorer = { follow_file = false, hidden = true },
+        explorer = {
+          follow_file = false,
+          hidden = true,
+          ignored = true,
+          exclude = filters.exclude,
+          matcher = { frecency = true, history_bonus = true, cwd_bonus = true },
+        },
+        files = {
+          hidden = true,
+          exclude = filters.exclude,
+          matcher = { frecency = true, history_bonus = true, cwd_bonus = true },
+          win = { input = { footer = '  <a-i> ignored │ :SearchFilters edit filters ' } },
+        },
+        grep = {
+          hidden = true,
+          exclude = filters.exclude,
+          finder = smart_grep,
+        },
       },
     },
   }
@@ -181,13 +242,36 @@ do
     if explorer then
       explorer:close()
     else
-      Snacks.picker.resume { source = 'explorer' }
+      Snacks.explorer { enter = true }
     end
   end, { desc = 'File [E]xplorer (cwd)' })
   vim.keymap.set('n', '<leader>E', function()
     local explorer = Snacks.explorer.reveal()
     if explorer then explorer:focus() end
   end, { desc = 'File [E]xplorer (current file)', silent = true })
+
+  local function parse_csv(v)
+    local ret = {}
+    for e in vim.gsplit(v, ',', { trimempty = true }) do
+      e = vim.trim(e)
+      if e ~= '' then ret[#ret + 1] = e end
+    end
+    return ret
+  end
+
+  local function filters_edit()
+    Snacks.input({ prompt = 'Always findable (comma separated): ', default = table.concat(filters.include, ', ') }, function(a)
+      if a == nil then return end
+      filters.include = parse_csv(a)
+      Snacks.input({ prompt = 'Always hidden (comma separated): ', default = table.concat(filters.exclude, ', ') }, function(b)
+        if b == nil then return end
+        filters.exclude = parse_csv(b)
+        vim.g.PickerFilters = vim.json.encode(filters)
+      end)
+    end)
+  end
+
+  vim.api.nvim_create_user_command('SearchFilters', filters_edit, { desc = 'Edit fuzzy search filters' })
 
   local function toggle_terminal()
     Snacks.terminal.toggle(nil, {
@@ -386,6 +470,9 @@ do
       },
       post = {
         read = function()
+          local ok, saved = pcall(vim.json.decode, vim.g.PickerFilters or '')
+          if ok and type(saved) == 'table' and vim.islist(saved.include) then filters.include = saved.include end
+          if ok and type(saved) == 'table' and vim.islist(saved.exclude) then filters.exclude = saved.exclude end
           if vim.g.ExplorerOpen == 1 then Snacks.explorer { enter = false } end
         end,
       },
