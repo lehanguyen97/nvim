@@ -101,12 +101,19 @@ do
 
   vim.keymap.set('n', '<S-l>', '<cmd>bnext<CR>', { desc = 'Next buffer' })
   vim.keymap.set('n', '<S-h>', '<cmd>bprevious<CR>', { desc = 'Previous buffer' })
-  vim.keymap.set('n', '<leader>d', '<cmd>bdelete<CR>', { desc = '[D]elete buffer' })
-  vim.keymap.set('n', '<leader>D', function()
-    local cur = vim.api.nvim_get_current_buf()
-    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-      if buf ~= cur and vim.bo[buf].buflisted then vim.api.nvim_buf_delete(buf, {}) end
+  vim.keymap.set('n', '<leader>d', function()
+    if not vim.bo.buflisted then
+      vim.notify('Not in a file buffer', vim.log.levels.WARN)
+      return
     end
+    require('snacks').bufdelete()
+  end, { desc = '[D]elete buffer' })
+  vim.keymap.set('n', '<leader>D', function()
+    if not vim.bo.buflisted then
+      vim.notify('Not in a file buffer', vim.log.levels.WARN)
+      return
+    end
+    require('snacks').bufdelete.other()
   end, { desc = '[D]elete other buffers' })
 
   -- [[ Basic Autocommands ]]
@@ -225,7 +232,7 @@ do
         files = {
           hidden = true,
           exclude = filters.exclude,
-          matcher = { frecency = true, history_bonus = true, cwd_bonus = true },
+          matcher = { frecency = true, history_bonus = true, cwd_bonus = true, sort_empty = true },
           win = { input = { footer = '  <a-i> ignored │ :SearchFilters edit filters ' } },
         },
         grep = {
@@ -239,10 +246,12 @@ do
 
   vim.keymap.set('n', '<leader>e', function()
     local explorer = Snacks.picker.get({ source = 'explorer' })[1]
-    if explorer then
+    if not explorer then
+      Snacks.explorer { enter = true }
+    elseif explorer:is_focused() then
       explorer:close()
     else
-      Snacks.explorer { enter = true }
+      explorer:focus()
     end
   end, { desc = 'File [E]xplorer (cwd)' })
   vim.keymap.set('n', '<leader>E', function()
@@ -384,6 +393,7 @@ do
     icons = { mappings = vim.g.have_nerd_font },
     spec = {
       { '<leader>f', group = '[F]ind', mode = { 'n', 'v' } },
+      { '<leader>l', group = '[L]SP' },
       { '<leader>s', group = '[S]ession' },
       { '<leader>x', group = 'diagnostics/quickfix' },
       { '<leader>c', group = '[C]ode' },
@@ -527,7 +537,6 @@ end
 do
   local Snacks = require 'snacks'
 
-  vim.keymap.set('n', '<leader>ff', Snacks.picker.files, { desc = 'Find [F]iles' })
   vim.keymap.set('n', '<leader>fr', Snacks.picker.recent, { desc = 'Find [R]ecent Files' })
 
   vim.keymap.set('n', '<leader>fg', Snacks.picker.grep, { desc = '[F]ind by [G]rep' })
@@ -540,23 +549,24 @@ do
   vim.keymap.set('n', '<leader>gg', '<cmd>DiffviewOpen<CR>', { desc = '[G]it chan[G]es' })
 
   vim.keymap.set('n', '<leader><leader>', Snacks.picker.files, { desc = '[ ] Find files' })
-  vim.keymap.set('n', '<leader>,', Snacks.picker.buffers, { desc = 'Find open buffers' })
-  vim.keymap.set('n', '<leader>cl', Snacks.picker.lsp_config, { desc = '[C]ode [L]SP info' })
+  vim.keymap.set('n', '<leader>.', Snacks.picker.buffers, { desc = 'Find open buffers' })
 
-  vim.keymap.set({ 'n', 'x' }, '<leader>fw', Snacks.picker.grep_word, { desc = '[F]ind current [W]ord' })
+  vim.keymap.set('n', '<leader>li', '<cmd>LspInfo<CR>', { desc = '[L]SP [I]nfo (status)' })
+  vim.keymap.set('n', '<leader>lr', '<cmd>LspRestart<CR>', { desc = '[L]SP [R]estart' })
+  vim.keymap.set('n', '<leader>ll', '<cmd>LspLog<CR>', { desc = '[L]SP [L]og' })
 
   vim.keymap.set('n', '<leader>fp', Snacks.picker.pickers, { desc = 'Find [P]icker' })
 
-  vim.keymap.set('n', '<leader>/', Snacks.picker.lines, { desc = '[/] Fuzzily search in current buffer' })
-  vim.keymap.set('n', '<leader>fb', Snacks.picker.lines, { desc = '[F]ind [B]uffer Lines' })
-
-  vim.keymap.set('n', '<leader>fB', Snacks.picker.grep_buffers, { desc = '[F]ind in Open [B]uffers' })
+  vim.keymap.set({ 'n', 'x' }, '<leader>/', function()
+    local v = Snacks.picker.util.visual()
+    Snacks.picker.lines { pattern = v and v.text or nil }
+  end, { desc = '[/] Search current buffer (selection in visual)' })
 
   vim.keymap.set(
     'n',
-    '<leader>fC',
+    '<leader>fv',
     function() Snacks.picker.files { cwd = vim.fn.stdpath 'config' } end,
-    { desc = 'Find Nvim [C]onfig files' }
+    { desc = 'Find N[v]im config files' }
   )
 
   -- LazyVim-style LSP keys instead of Nvim's global gr* defaults, so plain
@@ -578,10 +588,13 @@ do
       map('gr', Snacks.picker.lsp_references, 'References', { nowait = true })
       map('gI', Snacks.picker.lsp_implementations, 'Goto Implementation')
       map('gy', Snacks.picker.lsp_type_definitions, 'Goto T[y]pe Definition')
-      map('gD', vim.lsp.buf.declaration, 'Goto Declaration')
+      map('gD', Snacks.picker.lsp_declarations, 'Goto Declaration')
       map('gO', Snacks.picker.lsp_symbols, 'Document symbols')
       map('<leader>fs', Snacks.picker.lsp_symbols, '[F]ind [S]ymbols')
       map('<leader>fS', Snacks.picker.lsp_workspace_symbols, '[F]ind Workspace [S]ymbols')
+      map('<leader>ci', Snacks.picker.lsp_incoming_calls, '[C]allers (incoming)')
+      map('<leader>co', Snacks.picker.lsp_outgoing_calls, '[C]allees (outgoing)')
+      map('<C-k>', vim.lsp.buf.signature_help, 'Signature help', { mode = 'i' })
       map('<leader>ca', vim.lsp.buf.code_action, '[C]ode [A]ction', { mode = { 'n', 'x' } })
       map('<leader>cc', vim.lsp.codelens.run, '[C]ode Lens Run')
       map('<leader>cr', vim.lsp.buf.rename, '[C]ode [R]ename')
