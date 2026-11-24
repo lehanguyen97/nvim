@@ -509,7 +509,7 @@ do
   })
 
   vim.keymap.set('n', '<leader>sr', function() sessions.select 'read' end, { desc = '[S]ession [R]ead' })
-  vim.keymap.set('n', '<leader>sd', function() sessions.select 'delete' end, { desc = '[S]ession [D]elete' })
+  vim.keymap.set('n', '<leader>sd', function() sessions.select('delete', { force = true }) end, { desc = '[S]ession [D]elete' })
   vim.keymap.set('n', '<leader>sn', function()
     vim.ui.input({ prompt = 'Session name: ' }, function(name)
       if name and name ~= '' then sessions.write(name) end
@@ -539,7 +539,10 @@ do
 
   vim.keymap.set('n', '<leader>fr', Snacks.picker.recent, { desc = 'Find [R]ecent Files' })
 
-  vim.keymap.set('n', '<leader>fg', Snacks.picker.grep, { desc = '[F]ind by [G]rep' })
+  vim.keymap.set({ 'n', 'x' }, '<leader>fg', function()
+    local v = Snacks.picker.util.visual()
+    Snacks.picker.lines { pattern = v and v.text or nil }
+  end, { desc = '[F]ind in current buffer ([G]rep selection in visual)' })
   vim.keymap.set('n', '<leader>fh', Snacks.picker.help, { desc = '[F]ind [H]elp' })
   vim.keymap.set('n', '<leader>fk', Snacks.picker.keymaps, { desc = '[F]ind [K]eymaps' })
   vim.keymap.set('n', '<leader>fd', Snacks.picker.diagnostics, { desc = '[F]ind [D]iagnostics' })
@@ -551,16 +554,16 @@ do
   vim.keymap.set('n', '<leader><leader>', Snacks.picker.files, { desc = '[ ] Find files' })
   vim.keymap.set('n', '<leader>.', Snacks.picker.buffers, { desc = 'Find open buffers' })
 
-  vim.keymap.set('n', '<leader>li', '<cmd>LspInfo<CR>', { desc = '[L]SP [I]nfo (status)' })
-  vim.keymap.set('n', '<leader>lr', '<cmd>LspRestart<CR>', { desc = '[L]SP [R]estart' })
-  vim.keymap.set('n', '<leader>ll', '<cmd>LspLog<CR>', { desc = '[L]SP [L]og' })
+  vim.keymap.set('n', '<leader>li', '<cmd>checkhealth vim.lsp<CR>', { desc = '[L]SP [I]nfo (status)' })
+  vim.keymap.set('n', '<leader>lr', '<cmd>lsp restart<CR>', { desc = '[L]SP [R]estart' })
+  vim.keymap.set('n', '<leader>ll', function() vim.cmd.tabnew(vim.lsp.log.get_filename()) end, { desc = '[L]SP [L]og' })
 
   vim.keymap.set('n', '<leader>fp', Snacks.picker.pickers, { desc = 'Find [P]icker' })
 
   vim.keymap.set({ 'n', 'x' }, '<leader>/', function()
     local v = Snacks.picker.util.visual()
-    Snacks.picker.lines { pattern = v and v.text or nil }
-  end, { desc = '[/] Search current buffer (selection in visual)' })
+    Snacks.picker.grep { pattern = v and v.text or nil }
+  end, { desc = '[/] Grep everywhere (selection in visual)' })
 
   vim.keymap.set(
     'n',
